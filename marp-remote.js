@@ -1,10 +1,19 @@
 /**
- * Marp MQTT 遠端控制腳本 (註解提取強化版 - 隱藏 QR Code 版)
- * * 使用方式：
- * 1. 在 Marp Markdown 中引入依賴：
- * <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
- * <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
- * 2. 設定控制器網址與固定 ID 並引入此腳本：
+ * Marp MQTT 遠端控制腳本（提取 notes + 隱藏式 QRCode）
+ *
+ * 使用方式：
+ * 1) 在 Marp HTML 尾端插入依賴：
+ *    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+ *    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+ * 2) 可選：自訂控制器與固定房間 ID
+ *    window.MARP_REMOTE_CONTROLLER = "https://yourname.github.io/controller.html";
+ *    window.MARP_REMOTE_ROOM_ID = "DEMOHELLOMARP2025";
+ * 3) 載入本檔：<script src="https://chihchao.github.io/marp_sliders_controller/marp-remote.js"></script>
+ *
+ * 簡報端會：
+ * - 建立 MQTT 連線，持續送出頁碼與講稿到 `marp/remote/{roomId}/status`
+ * - 監聽 `marp/remote/{roomId}/cmd` 的控制指令
+ * - 按 K 才生成/顯示 QRCode（預設隱藏）
  */
 
 (function() {
@@ -29,9 +38,7 @@
         return { current, total: sections.length, sections };
     };
 
-    /**
-     * 深度優先搜索提取註解節點內容 (Node.COMMENT_NODE = 8)
-     */
+    // 深度優先提取該頁面所有 HTML 註解內容 (Node.COMMENT_NODE = 8)
     const getAllComments = (root) => {
         const comments = [];
         const walk = (node) => {
@@ -50,12 +57,7 @@
         return comments.join('<br>');
     };
 
-    /**
-     * 取得目前頁面的講稿：
-     * 1) 優先讀取 Marp 產生的 presenter note (.bespoke-marp-note[data-index])
-     * 2) 回退至 section 內的註解
-     * 3) 自動清除前綴 "_speakerNotes:"，避免顯示設定鍵
-     */
+    // 取得目前頁面的講稿（Marp notes 優先，否則讀 section 註解）
     const getSpeakerNotes = () => {
         const info = getPageInfo();
         const slideIndex = info.current - 1;
