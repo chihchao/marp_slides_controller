@@ -9,6 +9,7 @@
     <style>
         body { font-family: sans-serif; -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
         .active-btn:active { transform: scale(0.95); opacity: 0.8; }
+        #ui-notes br { margin-bottom: 0.5rem; display: block; content: ""; }
     </style>
 </head>
 <body class="bg-slate-950 text-white flex flex-col h-screen overflow-hidden">
@@ -16,42 +17,45 @@
     <header class="p-4 border-b border-slate-800 bg-slate-900/50 flex justify-between items-center">
         <div>
             <h1 class="text-xs font-bold text-blue-500 uppercase">Remote Control</h1>
-            <p id="ui-room-id" class="text-[10px] text-slate-500 font-mono">CONNECTING...</p>
+            <p id="ui-room-id" class="text-[10px] text-slate-500 font-mono tracking-tighter">CONNECTING...</p>
         </div>
-        <div id="ui-status" class="text-[10px] font-bold px-2 py-1 rounded bg-red-500/20 text-red-500">OFFLINE</div>
+        <div id="ui-status" class="text-[10px] font-bold px-2 py-1 rounded bg-red-500/20 text-red-500 transition-colors duration-300">OFFLINE</div>
     </header>
 
     <main class="flex-1 flex flex-col p-6 gap-6">
         <!-- 頁碼顯示 -->
-        <div class="flex flex-col items-center py-4">
+        <div class="flex flex-col items-center py-2">
             <div class="text-center">
                 <span id="ui-current-page" class="text-7xl font-black">1</span>
                 <div id="ui-total-pages" class="text-sm text-slate-500 font-bold mt-2 uppercase">Page / ?</div>
             </div>
         </div>
 
-        <!-- 備忘錄 -->
-        <div class="flex-1 bg-slate-900 rounded-3xl border border-slate-800 p-5 overflow-hidden flex flex-col">
-            <span class="text-[10px] font-bold text-slate-600 uppercase mb-2">Speaker Notes</span>
+        <!-- 備忘錄區塊 -->
+        <div class="flex-1 bg-slate-900 rounded-3xl border border-slate-800 p-5 overflow-hidden flex flex-col shadow-inner">
+            <div class="flex items-center gap-2 mb-3">
+                <div class="w-1.5 h-1.5 rounded-full bg-blue-500"></div>
+                <span class="text-[10px] font-bold text-slate-600 uppercase tracking-widest">Speaker Notes</span>
+            </div>
             <div id="ui-notes" class="flex-1 overflow-y-auto text-lg leading-relaxed text-slate-300 italic">
-                Waiting for sync...
+                Waiting for notes from slide...
             </div>
         </div>
 
         <!-- 控制鈕 -->
         <div class="grid grid-cols-2 gap-4 h-28">
-            <button onclick="publishCmd('prev')" class="active-btn bg-slate-800 rounded-2xl flex items-center justify-center border border-slate-700">
+            <button onclick="publishCmd('prev')" class="active-btn bg-slate-800 rounded-3xl flex items-center justify-center border border-slate-700 shadow-lg">
                 <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
             </button>
-            <button onclick="publishCmd('next')" class="active-btn bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-900/40">
+            <button onclick="publishCmd('next')" class="active-btn bg-blue-600 rounded-3xl flex items-center justify-center shadow-xl shadow-blue-900/40">
                 <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
             </button>
         </div>
     </main>
 
     <footer class="p-4 grid grid-cols-2 gap-2 bg-slate-900 border-t border-slate-800">
-        <button onclick="publishCmd('restart')" class="active-btn py-3 bg-slate-800 rounded-xl text-[10px] font-bold text-slate-500">RESTART</button>
-        <button onclick="jumpPrompt()" class="active-btn py-3 bg-slate-800 rounded-xl text-[10px] font-bold text-slate-500">JUMP</button>
+        <button onclick="publishCmd('restart')" class="active-btn py-4 bg-slate-800 rounded-2xl text-[10px] font-bold text-slate-500 tracking-widest">RESTART</button>
+        <button onclick="jumpPrompt()" class="active-btn py-4 bg-slate-800 rounded-2xl text-[10px] font-bold text-slate-500 tracking-widest">JUMP</button>
     </footer>
 
     <script>
@@ -68,11 +72,11 @@
         };
 
         if (!roomId) {
-            document.body.innerHTML = `<div class="p-20 text-center">No Room ID provided.</div>`;
+            document.body.innerHTML = `<div class="p-20 text-center text-slate-500">No Room ID. Scan QR Code again.</div>`;
         } else {
             dom.roomId.innerText = `ROOM: ${roomId}`;
             const client = mqtt.connect(BROKER, {
-                clientId: 'marp_ctrl_' + Math.random().toString(16).slice(2, 8)
+                clientId: 'marp_c_' + Math.random().toString(16).slice(2, 8)
             });
 
             const T_CMD = `marp/remote/${roomId}/cmd`;
@@ -90,8 +94,11 @@
                         const data = JSON.parse(message.toString());
                         if (dom.current) dom.current.innerText = data.currentPage || '1';
                         if (dom.total) dom.total.innerText = `Page / ${data.totalPages || '?'}`;
-                        if (dom.notes) dom.notes.innerHTML = data.notes || '<span class="text-slate-700">No notes.</span>';
-                        if (dom.notes) dom.notes.scrollTop = 0;
+                        // 這裡接收來自簡報端提取的 HTML 註解內容
+                        if (dom.notes) {
+                            dom.notes.innerHTML = data.notes || '<span class="text-slate-700 font-normal opacity-50">No speaker notes found in comments.</span>';
+                            dom.notes.scrollTop = 0;
+                        }
                     } catch (e) { console.error("Sync error:", e); }
                 }
             });
