@@ -109,37 +109,50 @@
     // 監聽本地換頁 (如按鍵盤左右鍵)
     window.addEventListener('hashchange', syncStatus);
 
-    // === 3. QR Code 介面建立 ===
+    // === 3. QR Code 介面建立（延遲建立：按下 K 才生成與顯示） ===
     window.addEventListener('load', () => {
-        const overlay = document.createElement('div');
-        overlay.id = 'marp-qr-overlay';
-        Object.assign(overlay.style, {
-            position: 'fixed', top: '0', left: '0', width: '100%', height: '100%',
-            backgroundColor: 'rgba(0,0,0,0.95)', zIndex: '9999',
-            display: 'none', // 預設隱藏
-            flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
-            color: 'white', fontFamily: 'sans-serif'
-        });
+        let overlay = null;
 
-        overlay.innerHTML = `
-            <div style="background: white; padding: 15px; border-radius: 12px; box-shadow: 0 0 30px rgba(0,0,0,0.5);" id="marp-qrcode-box"></div>
-            <p style="margin-top: 20px; font-size: 1.2rem; font-weight: bold;">Marp 遠端控制</p>
-            <p style="margin-top: 5px; color: #888; font-family: monospace;">Room: ${roomId}</p>
-            <p style="margin-top: 30px; font-size: 0.8rem; opacity: 0.6;">按 [ K ] 鍵關閉此視窗</p>
-        `;
-        document.body.appendChild(overlay);
+        const ensureOverlay = () => {
+            if (overlay) return overlay;
 
-        // 生成 QR Code
-        const qrcode = new QRCode(document.getElementById("marp-qrcode-box"), {
-            text: `${CONTROLLER_URL}?room=${roomId}`,
-            width: 256,
-            height: 256
-        });
+            overlay = document.createElement('div');
+            overlay.id = 'marp-qr-overlay';
+            Object.assign(overlay.style, {
+                position: 'fixed', top: '0', left: '0', width: '100%', height: '100%',
+                backgroundColor: 'rgba(0,0,0,0.95)', zIndex: '9999',
+                display: 'none', // 預設不顯示，按 K 才出現
+                flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
+                color: 'white', fontFamily: 'sans-serif'
+            });
+
+            overlay.innerHTML = `
+                <div style="background: white; padding: 15px; border-radius: 12px; box-shadow: 0 0 30px rgba(0,0,0,0.5);" id="marp-qrcode-box"></div>
+                <p style="margin-top: 20px; font-size: 1.2rem; font-weight: bold;">Marp 遠端控制</p>
+                <p style="margin-top: 5px; color: #888; font-family: monospace;">Room: ${roomId}</p>
+                <p style="margin-top: 30px; font-size: 0.8rem; opacity: 0.6;">按 [ K ] 鍵關閉此視窗</p>
+            `;
+            document.body.appendChild(overlay);
+
+            // 生成 QR Code（在第一次按 K 時才建立）
+            new QRCode(document.getElementById("marp-qrcode-box"), {
+                text: `${CONTROLLER_URL}?room=${roomId}`,
+                width: 256,
+                height: 256
+            });
+
+            return overlay;
+        };
+
+        const toggleOverlay = () => {
+            const target = ensureOverlay();
+            target.style.display = (target.style.display === 'none') ? 'flex' : 'none';
+        };
 
         // 監聽 K 鍵開關介面
         window.addEventListener('keydown', (e) => {
             if (e.key.toLowerCase() === 'k') {
-                overlay.style.display = (overlay.style.display === 'none') ? 'flex' : 'none';
+                toggleOverlay();
             }
         });
     });
