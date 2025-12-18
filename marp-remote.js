@@ -1,18 +1,14 @@
 /**
- * Marp MQTT 遠端控制腳本 (註解提取強化版)
+ * Marp MQTT 遠端控制腳本 (註解提取強化版 - 隱藏 QR Code 版)
  * * 使用方式：
  * 1. 在 Marp Markdown 中引入依賴：
  * <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
  * <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
- * 2. 設定控制器網址與固定 ID (可選) 並引入此腳本：
- * <script>
- * window.MARP_REMOTE_CONTROLLER = "https://yourname.github.io/controller.html";
- * window.MARP_REMOTE_ROOM_ID = "DEMO2024"; 
- * </script>
- * <script src="https://yourname.github.io/marp-remote.js"></script>
+ * 2. 設定控制器網址與固定 ID 並引入此腳本：
  */
 
 (function() {
+    // === 1. 配置解析 ===
     const CONTROLLER_URL = window.MARP_REMOTE_CONTROLLER || "https://chihchao.github.io/marp_sliders_controller/controller.html"; 
     const BROKER_URL = "wss://broker.hivemq.com:8884/mqtt";
     const roomId = window.MARP_REMOTE_ROOM_ID || Math.random().toString(36).substring(2, 10).toUpperCase();
@@ -20,10 +16,12 @@
     const TOPIC_CMD = `marp/remote/${roomId}/cmd`;
     const TOPIC_STATUS = `marp/remote/${roomId}/status`;
 
+    // 建立唯一的 Client ID 避免衝突
     const client = mqtt.connect(BROKER_URL, {
-        clientId: 'marp_p_' + Math.random().toString(16).slice(2, 8)
+        clientId: 'marp_host_' + Math.random().toString(16).slice(2, 8)
     });
 
+    // 取得目前簡報資訊
     const getPageInfo = () => {
         const pageHash = window.location.hash.replace('#', '');
         const current = parseInt(pageHash) || 1;
@@ -31,77 +29,119 @@
         return { current, total: sections.length, sections };
     };
 
-    // 關鍵函數：從 HTML 註解中提取筆記
-    const extractMarpNotes = (element) => {
-        if (!element) return "";
-        const notes = [];
-        // 建立 TreeWalker 專門尋找註解節點 (Node.COMMENT_NODE = 8)
-        const walker = document.createTreeWalker(element, NodeFilter.SHOW_COMMENT, null, false);
-        let node;
-        while (node = walker.nextNode()) {
-            const text = node.nodeValue.trim();
-            // 排除 Marp 可能自帶的系統註解
-            if (text && !text.startsWith('fit')) {
-                notes.push(text);
+    /**
+     * 深度優先搜索提取註解節點內容 (Node.COMMENT_NODE = 8)
+     */
+    const getAllComments = (root) => {
+        const comments = [];
+        const walk = (node) => {
+            if (node.nodeType === 8) { // 註解節點
+                const text = node.nodeValue.trim();
+                // 排除系統內建註解 (如 Marp 的 fit 或指令)
+                if (text && !text.startsWith('fit') && !text.startsWith('scald')) {
+                    comments.push(text);
+                }
             }
-        }
-        return notes.join('<br>');
+            if (node.childNodes) {
+                node.childNodes.forEach(walk);
+            }
+        };
+        walk(root);
+        return comments.join('<br>');
     };
 
+    // 同步狀態到手機端
     const syncStatus = () => {
         if (!client.connected) return;
+        
         const info = getPageInfo();
         const activeSection = info.sections[info.current - 1];
         
-        const notes = extractMarpNotes(activeSection);
-        const status = JSON.stringify({ 
+        // 提取當前 section 內的所有註解內容
+        const notes = activeSection ? getAllComments(activeSection) : "";
+        
+        const statusPayload = JSON.stringify({ 
             currentPage: info.current, 
             totalPages: info.total, 
             notes: notes 
         });
         
-        client.publish(TOPIC_STATUS, status, { retain: true, qos: 1 });
+        // 使用 retain: true 讓新連入的手機能立刻取得最後狀態
+        client.publish(TOPIC_STATUS, statusPayload, { retain: true, qos: 1 });
+        console.log("Status Synced:", { page: info.current, hasNotes: !!notes });
     };
 
+    // === 2. MQTT 通訊處理 ===
     client.on('connect', () => {
+        console.log("Marp Presenter Connected. Room ID:", roomId);
         client.subscribe(TOPIC_CMD);
-        syncStatus();
+        syncStatus(); // 連線時立即同步
     });
 
     client.on('message', (topic, message) => {
         if (topic === TOPIC_CMD) {
-            const data = JSON.parse(message.toString());
-            const info = getPageInfo();
-            switch(data.action) {
-                case 'next': if (info.current < info.total) window.location.hash = `#${info.current + 1}`; break;
-                case 'prev': if (info.current > 1) window.location.hash = `#${info.current - 1}`; break;
-                case 'restart': window.location.hash = "#1"; break;
-                case 'jump': window.location.hash = `#${data.value}`; break;
+            try {
+                const data = JSON.parse(message.toString());
+                const info = getPageInfo();
+                
+                switch(data.action) {
+                    case 'next':
+                        if (info.current < info.total) window.location.hash = `#${info.current + 1}`;
+                        break;
+                    case 'prev':
+                        if (info.current > 1) window.location.hash = `#${info.current - 1}`;
+                        break;
+                    case 'restart':
+                        window.location.hash = "#1";
+                        break;
+                    case 'jump':
+                        window.location.hash = `#${data.value}`;
+                        break;
+                }
+                // 指令執行後稍微延遲，等待 DOM 與 Hash 更新後再同步
+                setTimeout(syncStatus, 150);
+            } catch (e) {
+                console.error("Failed to parse command", e);
             }
-            setTimeout(syncStatus, 100);
         }
     });
 
+    // 監聽本地換頁 (如按鍵盤左右鍵)
     window.addEventListener('hashchange', syncStatus);
 
-    // QR Code 介面
+    // === 3. QR Code 介面建立 ===
     window.addEventListener('load', () => {
-        const div = document.createElement('div');
-        div.id = 'marp-qr-overlay';
-        Object.assign(div.style, {
+        const overlay = document.createElement('div');
+        overlay.id = 'marp-qr-overlay';
+        Object.assign(overlay.style, {
             position: 'fixed', top: '0', left: '0', width: '100%', height: '100%',
-            backgroundColor: 'rgba(0,0,0,0.9)', zIndex: '9999',
-            display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
+            backgroundColor: 'rgba(0,0,0,0.95)', zIndex: '9999',
+            display: 'none', // 預設隱藏
+            flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
             color: 'white', fontFamily: 'sans-serif'
         });
-        div.innerHTML = `<div style="background:white;padding:15px;border-radius:10px" id="qr"></div>
-                         <p style="margin-top:15px">Room: ${roomId}</p>
-                         <p style="font-size:12px;color:#666">Press [K] to toggle</p>`;
-        document.body.appendChild(div);
-        new QRCode(document.getElementById("qr"), { text: `${CONTROLLER_URL}?room=${roomId}`, width: 200, height: 200 });
-        
+
+        overlay.innerHTML = `
+            <div style="background: white; padding: 15px; border-radius: 12px; box-shadow: 0 0 30px rgba(0,0,0,0.5);" id="marp-qrcode-box"></div>
+            <p style="margin-top: 20px; font-size: 1.2rem; font-weight: bold;">Marp 遠端控制</p>
+            <p style="margin-top: 5px; color: #888; font-family: monospace;">Room: ${roomId}</p>
+            <p style="margin-top: 30px; font-size: 0.8rem; opacity: 0.6;">按 [ K ] 鍵關閉此視窗</p>
+        `;
+        document.body.appendChild(overlay);
+
+        // 生成 QR Code
+        const qrcode = new QRCode(document.getElementById("marp-qrcode-box"), {
+            text: `${CONTROLLER_URL}?room=${roomId}`,
+            width: 256,
+            height: 256
+        });
+
+        // 監聽 K 鍵開關介面
         window.addEventListener('keydown', (e) => {
-            if (e.key.toLowerCase() === 'k') div.style.display = div.style.display === 'none' ? 'flex' : 'none';
+            if (e.key.toLowerCase() === 'k') {
+                overlay.style.display = (overlay.style.display === 'none') ? 'flex' : 'none';
+            }
         });
     });
+
 })();
