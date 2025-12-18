@@ -59,7 +59,6 @@
         const params = new URLSearchParams(window.location.search);
         const roomId = params.get('room');
 
-        // 安全地獲取 DOM 元素
         const dom = {
             roomId: document.getElementById('ui-room-id'),
             status: document.getElementById('ui-status'),
@@ -89,7 +88,6 @@
                 if (topic === T_STATUS) {
                     try {
                         const data = JSON.parse(message.toString());
-                        // 這裡加上安全檢查，避免 innerText of null
                         if (dom.current) dom.current.innerText = data.currentPage || '1';
                         if (dom.total) dom.total.innerText = `Page / ${data.totalPages || '?'}`;
                         if (dom.notes) dom.notes.innerHTML = data.notes || '<span class="text-slate-700">No notes.</span>';
