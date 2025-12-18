@@ -4,8 +4,11 @@
  * 1. 在 Marp Markdown 中引入依賴：
  * <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
  * <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
- * 2. 定義控制器網址並引入此腳本：
- * <script>window.MARP_REMOTE_CONTROLLER = "https://yourname.github.io/controller.html";</script>
+ * 2. 定義控制器網址、指定 Room ID (可選) 並引入此腳本：
+ * <script>
+ * window.MARP_REMOTE_CONTROLLER = "https://yourname.github.io/controller.html";
+ * window.MARP_REMOTE_ROOM_ID = "MY_FIXED_ID"; // 指定固定 ID，若不設定則亂數產生
+ * </script>
  * <script src="https://yourname.github.io/marp-remote.js"></script>
  */
 
@@ -14,8 +17,8 @@
     const CONTROLLER_URL = window.MARP_REMOTE_CONTROLLER || "https://chihchao.github.io/marp_sliders_controller/controller.html"; 
     const BROKER_URL = "wss://broker.hivemq.com:8884/mqtt";
     
-    // 生成隨機且唯一的 Room ID
-    const roomId = Math.random().toString(36).substring(2, 10).toUpperCase();
+    // 優先使用指定的 Room ID，否則產生隨機 ID
+    const roomId = window.MARP_REMOTE_ROOM_ID || Math.random().toString(36).substring(2, 10).toUpperCase();
     const TOPIC_CMD = `marp/remote/${roomId}/cmd`;
     const TOPIC_STATUS = `marp/remote/${roomId}/status`;
 
@@ -25,8 +28,13 @@
     const getPageInfo = () => {
         const pageHash = window.location.hash.replace('#', '');
         const current = parseInt(pageHash) || 1;
-        const total = document.querySelectorAll('section').length;
-        return { current, total };
+        // Marp 簡報的每一頁都是一個 section
+        const sections = document.querySelectorAll('section');
+        return { 
+            current: current, 
+            total: sections.length,
+            sections: sections 
+        };
     };
 
     // 建立 QR Code 覆蓋層 UI
@@ -80,26 +88,34 @@
                 const data = JSON.parse(message.toString());
                 const info = getPageInfo();
                 
+                console.log("Processing command:", data.action, "at page", info.current, "/", info.total);
+
                 switch(data.action) {
                     case 'next':
                         if (info.current < info.total) {
                             window.location.hash = `#${info.current + 1}`;
+                        } else {
+                            console.log("Already at the last page.");
                         }
                         break;
                     case 'prev':
                         if (info.current > 1) {
                             window.location.hash = `#${info.current - 1}`;
+                        } else {
+                            console.log("Already at the first page.");
                         }
                         break;
                     case 'restart':
                         window.location.hash = "#1";
                         break;
                     case 'jump':
-                        window.location.hash = `#${data.value}`;
+                        if (data.value >= 1 && data.value <= info.total) {
+                            window.location.hash = `#${data.value}`;
+                        }
                         break;
                 }
-                // 指令執行後立即同步狀態
-                setTimeout(syncStatus, 50); 
+                // 指令執行後稍微延遲同步，確保 hashchange 已經觸發完畢
+                setTimeout(syncStatus, 100); 
             } catch (e) { console.error("Command error:", e); }
         }
     });
@@ -109,10 +125,12 @@
         if (!client.connected) return;
 
         const info = getPageInfo();
-        const activeSection = document.querySelector(`section#${info.current}`) || document.querySelectorAll('section')[info.current - 1];
+        // 使用索引抓取當前 section，避免 ID 選取器失效
+        const activeSection = info.sections[info.current - 1];
         
         let notes = "";
         if (activeSection) {
+            // 抓取備忘錄 (Marp 通常放在 aside 中)
             const aside = activeSection.querySelector('aside');
             notes = aside ? aside.innerHTML : "";
         }
@@ -120,14 +138,16 @@
         const status = JSON.stringify({ 
             currentPage: info.current, 
             totalPages: info.total, 
-            notes 
+            notes: notes 
         });
         
-        // 使用 retain: true 確保手機端一連線就能拿到最新狀態
-        client.publish(TOPIC_STATUS, status, { retain: true });
+        console.log("Syncing status to controller:", { page: info.current, total: info.total });
+        
+        // 使用 retain: true 確保手機端連線時能立即獲取最後狀態
+        client.publish(TOPIC_STATUS, status, { retain: true, qos: 1 });
     }
 
-    // 監聽手動換頁事件
+    // 監聽網址變化 (不論是手動還是指令觸發)
     window.addEventListener('hashchange', syncStatus);
 
     // 3. 熱鍵控制
